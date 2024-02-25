@@ -1,12 +1,13 @@
 const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-
+const crypto = require('crypto');
+const sendEmail = require('../utils/email');
 
 const jwtSecret = process.env.JWT_SECRET || 'secret';
 
 exports.register = async (req, res) => {
-    const { username, email, password } = req.body;
+    const { username, email, password, handicapType} = req.body;
     try {
         let user = await User.findOne({ email });
         if (user) {
@@ -15,7 +16,8 @@ exports.register = async (req, res) => {
         user = new User({
             username,
             email,
-            password
+            password,
+            handicapType 
         });
         const salt = await bcrypt.genSalt(10);
         user.password = await bcrypt.hash(password, salt);
@@ -77,3 +79,78 @@ exports.getUser = async (req, res) => {
         res.status(500).send('Erreur serveur');
     }
 };
+
+exports.forgotPassword = async (req, res) => {
+    const { email } = req.body;
+  
+    try {
+      const user = await User.findOne({ email });
+      if (!user) {
+        return res.status(404).send("Utilisateur non trouvé avec cet email.");
+      }
+  
+      
+      const verificationCode = Math.floor(100000 + Math.random() * 900000); 
+  
+     
+      user.verificationCode = verificationCode;
+      await user.save();
+  
+    
+      await sendEmail(email, "Réinitialisation de votre mot de passe", `Votre code de vérification est : ${verificationCode}`);
+  
+      res.send("Un code de vérification a été envoyé à votre adresse email.");
+    } catch (error) {
+      console.error(error);
+      res.status(500).send("Erreur serveur");
+    }
+  };
+  exports.verifyCode = async (req, res) => {
+    const { email, verificationCode } = req.body;
+    
+    try {
+      const user = await User.findOne({
+        email,
+        verificationCode,
+        verificationCodeExpires: { $gt: Date.now() },
+      });
+  
+      if (!user) {
+        return res.status(400).send("Code de vérification invalide ou expiré.");
+      }
+  
+     
+      res.send("Code de vérification valide. Veuillez procéder à la réinitialisation du mot de passe.");
+    } catch (error) {
+      console.error(error);
+      res.status(500).send("Erreur serveur");
+    }
+  };
+  exports.resetPassword = async (req, res) => {
+    const { email, verificationCode, newPassword } = req.body;
+    
+    try {
+      const user = await User.findOne({
+        email,
+        verificationCode,
+        verificationCodeExpires: { $gt: Date.now() },
+      });
+  
+      if (!user) {
+        return res.status(400).send("Code de vérification invalide ou expiré.");
+      }
+  
+      const salt = await bcrypt.genSalt(10);
+      user.password = await bcrypt.hash(newPassword, salt);
+      user.verificationCode = undefined;
+      user.verificationCodeExpires = undefined; 
+  
+      await user.save();
+  
+      res.send("Mot de passe réinitialisé avec succès.");
+    } catch (error) {
+      console.error(error);
+      res.status(500).send("Erreur serveur");
+    }
+  };
+  
